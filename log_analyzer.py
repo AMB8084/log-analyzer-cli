@@ -1,17 +1,33 @@
 import argparse
 import sys
 import os
+import re
+
+LOG_PATTERN = re.compile(
+    r'(?P<ip>\S+) \S+ \S+ \[(?P<time>.*?)\] "(?P<method>\S+) (?P<endpoint>\S+) (?P<protocol>[^"]+)" (?P<status>\d{3}) (?P<size>\S+)'
+)
 
 
 def analyze_log(file_path):
-    if not os.path.exists(file_path):
-        print(f"Error: File '{file_path}' not found.")
-        sys.exit(1)
+    malformed_lines = 0
+    total_requests = 0
 
-    print(f"Analyzing {file_path}...\n")
     with open(file_path, "r") as file:
-        for line_number, line in enumerate(file, 1):
-            pass
+        for line in file:
+            line = line.strip()
+            if not line:
+                continue
+
+            match = LOG_PATTERN.match(line)
+            if not match:
+                malformed_lines += 1
+                continue
+
+            total_requests += 1
+            data = match.groupdict()
+
+    print(f"Total Requests: {total_requests}")
+    print(f"Malformed Lines Skipped: {malformed_lines}")
 
 
 def main():
