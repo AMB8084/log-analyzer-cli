@@ -2,6 +2,8 @@ import argparse
 import sys
 import os
 import re
+import gzip
+import time
 from collections import Counter, defaultdict
 
 LOG_PATTERN = re.compile(
@@ -14,6 +16,8 @@ def analyze_log(file_path):
         print(f"Error: File '{file_path}' not found.")
         sys.exit(1)
 
+    start_time = time.time()
+
     malformed_lines = 0
     total_requests = 0
     error_count = 0
@@ -23,7 +27,9 @@ def analyze_log(file_path):
     hourly_counter = Counter()
     suspicious_ips = defaultdict(int)
 
-    with open(file_path, "r") as file:
+    open_func = gzip.open if file_path.endswith(".gz") else open
+
+    with open_func(file_path, "rt", encoding="utf-8") as file:
         for line in file:
             line = line.strip()
             if not line:
@@ -57,10 +63,12 @@ def analyze_log(file_path):
             if status == "401" and endpoint == "/login":
                 suspicious_ips[ip] += 1
 
+    execution_time = time.time() - start_time
     error_rate = (error_count / total_requests * 100) if total_requests else 0
 
     print("\n" + "=" * 40)
-    print("LOG ANALYSIS REPORT")
+    print(" LOG ANALYSIS REPORT")
+    print(f" Execution Time: {execution_time:.2f} seconds")
     print("=" * 40)
 
     print("\n[1] BASE METRICS")
@@ -93,9 +101,7 @@ def analyze_log(file_path):
 
 def main():
     parser = argparse.ArgumentParser(description="HamAmooz Log Analyzer CLI Tool")
-    parser.add_argument(
-        "file_path", help="Path to the access log file (e.g., access.log)"
-    )
+    parser.add_argument("file_path", help="Path to the access log file (supports .gz)")
 
     args = parser.parse_args()
     analyze_log(args.file_path)
