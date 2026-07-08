@@ -4,6 +4,7 @@ import os
 import re
 import gzip
 import time
+import json
 from collections import Counter, defaultdict
 
 LOG_PATTERN = re.compile(
@@ -11,9 +12,9 @@ LOG_PATTERN = re.compile(
 )
 
 
-def analyze_log(file_path):
+def analyze_log(file_path, top_n=10, as_json=False):
     if not os.path.exists(file_path):
-        print(f"Error: File '{file_path}' not found.")
+        print(f"Error: File '{file_path}' not found.", file=sys.stderr)
         sys.exit(1)
 
     start_time = time.time()
@@ -66,10 +67,27 @@ def analyze_log(file_path):
     execution_time = time.time() - start_time
     error_rate = (error_count / total_requests * 100) if total_requests else 0
 
-    print("\n" + "=" * 40)
+    if as_json:
+        report = {
+            "execution_time_seconds": round(execution_time, 2),
+            "base_metrics": {
+                "total_valid_requests": total_requests,
+                "total_unique_ips": len(ip_counter),
+                "malformed_lines_skipped": malformed_lines,
+                "error_rate_percentage": round(error_rate, 2),
+            },
+            "top_endpoints": dict(endpoint_counter.most_common(top_n)),
+            "suspicious_ips": {
+                ip: count for ip, count in suspicious_ips.items() if count >= 3
+            },
+        }
+        print(json.dumps(report, indent=4))
+        return
+
+    print("\n" + "=" * 45)
     print(" LOG ANALYSIS REPORT")
     print(f" Execution Time: {execution_time:.2f} seconds")
-    print("=" * 40)
+    print("=" * 45)
 
     print("\n[1] BASE METRICS")
     print(f"- Total Valid Requests: {total_requests}")
@@ -77,8 +95,8 @@ def analyze_log(file_path):
     print(f"- Malformed Lines Skipped: {malformed_lines}")
     print(f"- Error Rate (4xx & 5xx): {error_rate:.2f}%")
 
-    print("\n[2] TOP 10 ENDPOINTS")
-    for endpoint, count in endpoint_counter.most_common(10):
+    print(f"\n[2] TOP {top_n} ENDPOINTS")
+    for endpoint, count in endpoint_counter.most_common(top_n):
         print(f"    {endpoint:<25} | {count} requests")
 
     print("\n[3] HOURLY TRAFFIC DISTRIBUTION")
@@ -96,15 +114,21 @@ def analyze_log(file_path):
     if not found_suspicious:
         print("     No major suspicious login activities detected.")
 
-    print("\n" + "=" * 40 + "\n")
+    print("\n" + "=" * 45 + "\n")
 
 
 def main():
     parser = argparse.ArgumentParser(description="HamAmooz Log Analyzer CLI Tool")
     parser.add_argument("file_path", help="Path to the access log file (supports .gz)")
+    parser.add_argument(
+        "--top", type=int, default=10, help="Number of top endpoints to display"
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Output report in JSON format"
+    )
 
     args = parser.parse_args()
-    analyze_log(args.file_path)
+    analyze_log(args.file_path, top_n=args.top, as_json=args.json)
 
 
 if __name__ == "__main__":
