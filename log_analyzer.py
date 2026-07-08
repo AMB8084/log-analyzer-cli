@@ -28,6 +28,9 @@ def analyze_log(file_path, top_n=10, as_json=False):
     hourly_counter = Counter()
     suspicious_ips = defaultdict(int)
 
+    minute_requests = defaultdict(int)
+    minute_5xx_errors = defaultdict(int)
+
     open_func = gzip.open if file_path.endswith(".gz") else open
 
     with open_func(file_path, "rt", encoding="utf-8") as file:
@@ -56,16 +59,37 @@ def analyze_log(file_path, top_n=10, as_json=False):
                 error_count += 1
 
             time_parts = time_str.split(":")
-            if len(time_parts) >= 2:
+            if len(time_parts) >= 3:
                 date = time_parts[0]
                 hour = time_parts[1]
+                minute = time_parts[2][:2]
+
                 hourly_counter[f"{date} {hour}:00"] += 1
+
+                minute_key = f"{date} {hour}:{minute}"
+                minute_requests[minute_key] += 1
+                if status.startswith("5"):
+                    minute_5xx_errors[minute_key] += 1
 
             if status == "401" and endpoint == "/login":
                 suspicious_ips[ip] += 1
 
     execution_time = time.time() - start_time
     error_rate = (error_count / total_requests * 100) if total_requests else 0
+
+    error_spikes = []
+    for minute_key, req_count in minute_requests.items():
+        if req_count > 50:
+            err_count = minute_5xx_errors[minute_key]
+            spike_rate = (err_count / req_count) * 100
+            if spike_rate > 5.0:
+                error_spikes.append(
+                    {
+                        "time": minute_key,
+                        "rate": round(spike_rate, 2),
+                        "total": req_count,
+                    }
+                )
 
     if as_json:
         report = {
@@ -80,14 +104,15 @@ def analyze_log(file_path, top_n=10, as_json=False):
             "suspicious_ips": {
                 ip: count for ip, count in suspicious_ips.items() if count >= 3
             },
+            "error_spikes_5xx": error_spikes,
         }
         print(json.dumps(report, indent=4))
         return
 
-    print("\n" + "=" * 45)
+    print("\n" + "=" * 50)
     print(" LOG ANALYSIS REPORT")
     print(f" Execution Time: {execution_time:.2f} seconds")
-    print("=" * 45)
+    print("=" * 50)
 
     print("\n[1] BASE METRICS")
     print(f"- Total Valid Requests: {total_requests}")
@@ -114,7 +139,16 @@ def analyze_log(file_path, top_n=10, as_json=False):
     if not found_suspicious:
         print("     No major suspicious login activities detected.")
 
-    print("\n" + "=" * 45 + "\n")
+    print("\n[5] 5xx ERROR SPIKES (Bonus)")
+    if error_spikes:
+        for spike in sorted(error_spikes, key=lambda x: x["time"]):
+            print(
+                f"     Spike at {spike['time']}: {spike['rate']}% error rate (Total requests: {spike['total']})"
+            )
+    else:
+        print("     No 5xx error spikes detected.")
+
+    print("\n" + "=" * 50 + "\n")
 
 
 def main():
